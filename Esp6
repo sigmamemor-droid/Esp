@@ -1,636 +1,489 @@
+--[[
+    SWILL ESP SYSTEM v2.0 - ПОЛНОСТЬЮ ФУНКЦИОНАЛЬНЫЙ
+    Включает: ESP (Box, Traceline, Health Bar, Name, Distance)
+    + Красивый GUI интерфейс с управлением
+    РАБОТАЕТ НА ВСЕХ РЕЖИМАХ И ВСЕХ ИГРАХ
+--]]
+
+-- ЗАГРУЗКА БИБЛИОТЕКИ ДЛЯ GUI
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
 local UserInputService = game:GetService("UserInputService")
-local Workspace = game:GetService("Workspace")
-local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- // Библиотека интерфейса
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/SwillWay/SWILL-UI/main/library.lua"))()
-
--- // Создание окна
-local Window = Library:CreateWindow({
-    Title = "SWILL | Universal Executor",
-    Subtitle = "Created by Swill Way Team",
-    Theme = "Dark",
-    Size = UDim2.new(0, 600, 0, 400),
-    Position = UDim2.new(0.5, -300, 0.5, -200),
-    Acrylic = true,
-    Transparency = 0.05,
-    MinimizeKey = Enum.KeyCode.RightShift,
-    DragStyle = 1
-})
-
--- // Вкладки
-local VisualsTab = Window:CreateTab("🎯 ESP & Visuals")
-local AimbotTab = Window:CreateTab("🎯 Aimbot")
-local PlayerTab = Window:CreateTab("👤 Player")
-local TeleportTab = Window:CreateTab("📍 Teleports")
-local MiscTab = Window:CreateTab("⚙️ Misc")
-local CredTab = Window:CreateTab("💳 Credits")
-
--- =============================================
--- ESP СИСТЕМА
--- =============================================
-local ESP = {
-    Enabled = false,
-    Boxes = false,
-    BoxType = "2D",
-    BoxColor = Color3.fromRGB(255, 0, 0),
-    BoxThickness = 2,
-    
-    Tracers = false,
-    TracerOrigin = "Bottom",
-    TracerColor = Color3.fromRGB(255, 255, 255),
-    TracerThickness = 2,
-    
-    Names = false,
-    NameColor = Color3.fromRGB(255, 255, 255),
-    NameSize = 14,
-    
-    Distance = false,
-    DistanceColor = Color3.fromRGB(255, 255, 255),
-    
-    HealthBar = false,
-    HealthBarStyle = "Bar",
-    
-    Skeletons = false,
-    SkeletonColor = Color3.fromRGB(0, 255, 0),
-    
-    Chams = false,
-    ChamColor = Color3.fromRGB(255, 0, 255),
-    ChamTransparency = 0.5,
-    
+-- КОНФИГУРАЦИЯ ESP
+local ESPConfig = {
+    Enabled = true,
+    Traceline = true,
+    Box = true,
+    HealthBar = true,
+    HealthText = true,
+    NameDisplay = true,
+    Distance = true,
+    MaxRenderDistance = 500,
+    BoxColor = Color3.fromRGB(0, 255, 255),
+    TracelineColor = Color3.fromRGB(255, 0, 255),
     TeamCheck = false,
-    VisibleCheck = false,
-    MaxDistance = 2000
+    UseTeamColors = true
 }
 
--- ESP Отрисовка
+-- ХРАНИЛИЩЕ ОБЪЕКТОВ ESP
 local ESPObjects = {}
-local function CreateESP(player)
-    local espObj = {
-        Box = Drawing.new("Square"),
-        Tracer = Drawing.new("Line"),
-        Name = Drawing.new("Text"),
-        Distance = Drawing.new("Text"),
-        HealthBar = Drawing.new("Line"),
-        HealthBG = Drawing.new("Line"),
-        SkeletonLines = {}
-    }
-    
-    -- Настройка бокса
-    espObj.Box.Visible = false
-    espObj.Box.Thickness = ESP.BoxThickness
-    espObj.Box.Filled = false
-    espObj.Box.Color = ESP.BoxColor
-    
-    -- Настройка трейсера
-    espObj.Tracer.Visible = false
-    espObj.Tracer.Thickness = ESP.TracerThickness
-    espObj.Tracer.Color = ESP.TracerColor
-    
-    -- Настройка имени
-    espObj.Name.Visible = false
-    espObj.Name.Size = ESP.NameSize
-    espObj.Name.Center = true
-    espObj.Name.Outline = true
-    espObj.Name.Color = ESP.NameColor
-    
-    -- Настройка дистанции
-    espObj.Distance.Visible = false
-    espObj.Distance.Size = 13
-    espObj.Distance.Center = true
-    espObj.Distance.Outline = true
-    espObj.Distance.Color = ESP.DistanceColor
-    
-    -- Скелет
-    for i = 1, 15 do
-        local line = Drawing.new("Line")
-        line.Visible = false
-        line.Color = ESP.SkeletonColor
-        line.Thickness = 1
-        espObj.SkeletonLines[i] = line
+
+-- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+local function CreateDrawingObject(drawType, color)
+    local obj
+    if drawType == "Line" then
+        obj = Drawing.new("Line")
+        obj.Thickness = 2
+        obj.Color = color
+        obj.Visible = false
+        obj.Transparency = 1
+    elseif drawType == "Square" then
+        obj = Drawing.new("Square")
+        obj.Thickness = 2
+        obj.Filled = false
+        obj.Color = color
+        obj.Visible = false
+        obj.Transparency = 1
+    elseif drawType == "Text" then
+        obj = Drawing.new("Text")
+        obj.Size = 14
+        obj.Center = true
+        obj.Outline = true
+        obj.Color = color
+        obj.Visible = false
+        obj.Font = 3  -- UI.Font.Gotham
     end
-    
-    ESPObjects[player] = espObj
-    return espObj
+    return obj
 end
 
--- Обновление ESP
-local function UpdateESP()
-    for player, espObj in pairs(ESPObjects) do
-        if player == LocalPlayer or not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
-            for _, drawing in pairs(espObj) do
-                if type(drawing) == "table" then
-                    for _, d in pairs(drawing) do
-                        if d and d.Remove then d.Visible = false end
-                    end
-                elseif drawing and drawing.Remove then
-                    drawing.Visible = false
-                end
-            end
-            continue
+local function GetHealthColor(health, maxHealth)
+    local percent = health / maxHealth
+    local r = 1 - percent
+    local g = percent
+    return Color3.fromRGB(r * 255, g * 255, 0)
+end
+
+local function GetTeamColor(player)
+    if player.Team then
+        if player.Team.TeamColor then
+            return player.Team.TeamColor.Color
         end
-        
-        if ESP.TeamCheck and player.Team == LocalPlayer.Team then
-            for _, drawing in pairs(espObj) do
-                if type(drawing) == "table" then
-                    for _, d in pairs(drawing) do
-                        if d and d.Remove then d.Visible = false end
-                    end
-                elseif drawing and drawing.Remove then
-                    drawing.Visible = false
-                end
+    end
+    return ESPConfig.BoxColor
+end
+
+-- ОСНОВНАЯ ФУНКЦИЯ ОТРИСОВКИ ESP
+local function DrawESP(player)
+    if not ESPConfig.Enabled then return end
+    if player == LocalPlayer then return end
+    
+    local character = player.Character
+    if not character or not character.Parent then return end
+    
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    if not rootPart or not humanoid or humanoid.Health <= 0 then
+        if ESPObjects[player] then
+            for _, obj in pairs(ESPObjects[player]) do
+                if obj then obj.Visible = false end
             end
-            continue
         end
-        
-        local rootPart = player.Character.HumanoidRootPart
-        local humanoid = player.Character:FindFirstChild("Humanoid")
-        local screenPos, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
-        
-        local distance = (Camera.CFrame.Position - rootPart.Position).Magnitude
-        if distance > ESP.MaxDistance then
-            for _, drawing in pairs(espObj) do
-                if type(drawing) == "table" then
-                    for _, d in pairs(drawing) do
-                        if d and d.Remove then d.Visible = false end
-                    end
-                elseif drawing and drawing.Remove then
-                    drawing.Visible = false
-                end
+        return
+    end
+    
+    -- ПРОВЕРКА ДИСТАНЦИИ
+    local distance = (Camera.CFrame.Position - rootPart.Position).Magnitude
+    if distance > ESPConfig.MaxRenderDistance then
+        if ESPObjects[player] then
+            for _, obj in pairs(ESPObjects[player]) do
+                if obj then obj.Visible = false end
             end
-            continue
         end
-        
-        -- Боксы
-        if ESP.Boxes and ESP.Enabled then
-            espObj.Box.Visible = onScreen
-            if onScreen then
-                local boxSize = Vector2.new(math.floor(2000 / distance), math.floor(3500 / distance))
-                espObj.Box.Size = boxSize
-                espObj.Box.Position = Vector2.new(screenPos.X - boxSize.X/2, screenPos.Y - boxSize.Y/2)
-                espObj.Box.Color = ESP.BoxColor
-                espObj.Box.Thickness = ESP.BoxThickness
-            end
+        return
+    end
+    
+    -- ПОЛУЧЕНИЕ ПОЗИЦИЙ НА ЭКРАНЕ
+    local screenPos, onScreen = Camera:WorldToScreenPoint(rootPart.Position)
+    if not onScreen then return end
+    
+    local head = character:FindFirstChild("Head")
+    local headPos = head and head.Position or rootPart.Position + Vector3.new(0, 2.5, 0)
+    local headScreen, headOnScreen = Camera:WorldToScreenPoint(headPos)
+    
+    if not headOnScreen then return end
+    
+    -- РАСЧЕТ РАЗМЕРОВ БОКСА
+    local height = math.abs(headScreen.Y - screenPos.Y)
+    local width = height * 0.6
+    if height < 10 or width < 5 then return end
+    
+    local centerX = screenPos.X
+    local boxMinX = centerX - width/2
+    local boxMinY = headScreen.Y
+    local boxMaxX = centerX + width/2
+    local boxMaxY = screenPos.Y
+    
+    -- ОПРЕДЕЛЕНИЕ ЦВЕТОВ
+    local boxColor = ESPConfig.BoxColor
+    local tracelineColor = ESPConfig.TracelineColor
+    
+    if ESPConfig.TeamCheck and ESPConfig.UseTeamColors then
+        boxColor = GetTeamColor(player)
+        tracelineColor = boxColor
+    elseif ESPConfig.TeamCheck and player.Team and LocalPlayer.Team then
+        if player.Team == LocalPlayer.Team then
+            boxColor = Color3.fromRGB(0, 255, 0)
+            tracelineColor = Color3.fromRGB(0, 255, 0)
         else
-            espObj.Box.Visible = false
+            boxColor = Color3.fromRGB(255, 0, 0)
+            tracelineColor = Color3.fromRGB(255, 0, 0)
         end
-        
-        -- Трейсеры
-        if ESP.Tracers and ESP.Enabled then
-            espObj.Tracer.Visible = onScreen
-            if onScreen then
-                local viewportSize = Camera.ViewportSize
-                espObj.Tracer.From = Vector2.new(viewportSize.X/2, viewportSize.Y)
-                espObj.Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
-                espObj.Tracer.Color = ESP.TracerColor
-            end
+    end
+    
+    local healthPercent = humanoid.Health / humanoid.MaxHealth
+    
+    -- СОЗДАНИЕ ОБЪЕКТОВ ЕСЛИ ИХ НЕТ
+    if not ESPObjects[player] then
+        ESPObjects[player] = {
+            Box = CreateDrawingObject("Square", boxColor),
+            Traceline = CreateDrawingObject("Line", tracelineColor),
+            NameText = CreateDrawingObject("Text", Color3.fromRGB(255, 255, 255)),
+            HealthText = CreateDrawingObject("Text", Color3.fromRGB(255, 255, 255)),
+            DistanceText = CreateDrawingObject("Text", Color3.fromRGB(200, 200, 200)),
+            HealthBar = Drawing.new("Line")
+        }
+        ESPObjects[player].HealthBar.Thickness = 3
+        ESPObjects[player].HealthBar.Color = GetHealthColor(humanoid.Health, humanoid.MaxHealth)
+        ESPObjects[player].HealthBar.Visible = false
+    end
+    
+    local esp = ESPObjects[player]
+    
+    -- ОТРИСОВКА BOX
+    if ESPConfig.Box then
+        esp.Box.Visible = true
+        esp.Box.Color = boxColor
+        esp.Box.Size = Vector2.new(width, height)
+        esp.Box.Position = Vector2.new(boxMinX, boxMinY)
+    else
+        esp.Box.Visible = false
+    end
+    
+    -- ОТРИСОВКА TRACELINE (ЛИНИЯ ОТ ЦЕНТРА ЭКРАНА)
+    if ESPConfig.Traceline then
+        esp.Traceline.Visible = true
+        esp.Traceline.Color = tracelineColor
+        esp.Traceline.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+        esp.Traceline.To = Vector2.new(centerX, boxMaxY)
+    else
+        esp.Traceline.Visible = false
+    end
+    
+    -- ОТРИСОВКА HEALTH BAR
+    if ESPConfig.HealthBar then
+        esp.HealthBar.Visible = true
+        esp.HealthBar.Color = GetHealthColor(humanoid.Health, humanoid.MaxHealth)
+        esp.HealthBar.From = Vector2.new(boxMinX - 5, boxMaxY - (height * healthPercent))
+        esp.HealthBar.To = Vector2.new(boxMinX - 5, boxMaxY)
+        esp.HealthBar.Thickness = 3
+    else
+        esp.HealthBar.Visible = false
+    end
+    
+    -- ОТРИСОВКА HEALTH TEXT
+    if ESPConfig.HealthText then
+        esp.HealthText.Visible = true
+        esp.HealthText.Text = math.floor(humanoid.Health) .. "/" .. math.floor(humanoid.MaxHealth)
+        esp.HealthText.Position = Vector2.new(centerX, boxMaxY + 15)
+        esp.HealthText.Size = 11
+        esp.HealthText.Color = GetHealthColor(humanoid.Health, humanoid.MaxHealth)
+    else
+        esp.HealthText.Visible = false
+    end
+    
+    -- ОТРИСОВКА NAME
+    if ESPConfig.NameDisplay then
+        esp.NameText.Visible = true
+        local nameText = player.DisplayName or player.Name
+        if distance < 20 then
+            nameText = nameText .. " [В БЛИЗИ]"
+        end
+        esp.NameText.Text = nameText
+        esp.NameText.Position = Vector2.new(centerX, boxMinY - 15)
+        esp.NameText.Color = boxColor
+        esp.NameText.Size = 14
+    else
+        esp.NameText.Visible = false
+    end
+    
+    -- ОТРИСОВКА DISTANCE
+    if ESPConfig.Distance then
+        esp.DistanceText.Visible = true
+        local distText = math.floor(distance) .. "м"
+        if distance < 50 then
+            distText = "⚠️ " .. distText .. " ⚠️"
+            esp.DistanceText.Color = Color3.fromRGB(255, 100, 100)
         else
-            espObj.Tracer.Visible = false
+            esp.DistanceText.Color = Color3.fromRGB(255, 255, 255)
         end
-        
-        -- Имена
-        if ESP.Names and ESP.Enabled then
-            espObj.Name.Visible = onScreen
-            if onScreen then
-                espObj.Name.Text = player.Name
-                espObj.Name.Position = Vector2.new(screenPos.X, screenPos.Y - math.floor(2500 / distance) - 20)
-                espObj.Name.Color = ESP.NameColor
-            end
-        else
-            espObj.Name.Visible = false
-        end
-        
-        -- Дистанция
-        if ESP.Distance and ESP.Enabled then
-            espObj.Distance.Visible = onScreen
-            if onScreen then
-                espObj.Distance.Text = string.format("[%.0f m]", distance)
-                espObj.Distance.Position = Vector2.new(screenPos.X, screenPos.Y - math.floor(2500 / distance) - 35)
-                espObj.Distance.Color = ESP.DistanceColor
-            end
-        else
-            espObj.Distance.Visible = false
-        end
-        
-        -- Health Bar
-        if ESP.HealthBar and humanoid and ESP.Enabled then
-            espObj.HealthBar.Visible = onScreen
-            espObj.HealthBG.Visible = onScreen
-            if onScreen then
-                local boxSize = Vector2.new(math.floor(2000 / distance), math.floor(3500 / distance))
-                local healthPercent = humanoid.Health / humanoid.MaxHealth
-                
-                espObj.HealthBG.From = Vector2.new(screenPos.X - boxSize.X/2 - 6, screenPos.Y - boxSize.Y/2)
-                espObj.HealthBG.To = Vector2.new(screenPos.X - boxSize.X/2 - 6, screenPos.Y + boxSize.Y/2)
-                espObj.HealthBG.Color = Color3.fromRGB(0, 0, 0)
-                espObj.HealthBG.Thickness = 3
-                
-                espObj.HealthBar.From = Vector2.new(screenPos.X - boxSize.X/2 - 6, screenPos.Y + boxSize.Y/2)
-                espObj.HealthBar.To = Vector2.new(screenPos.X - boxSize.X/2 - 6, screenPos.Y + boxSize.Y/2 - boxSize.Y * healthPercent)
-                espObj.HealthBar.Color = Color3.fromHSV(healthPercent * 0.3, 1, 1)
-                espObj.HealthBar.Thickness = 3
-            end
-        else
-            espObj.HealthBar.Visible = false
-            espObj.HealthBG.Visible = false
-        end
-        
-        -- Скелет
-        if ESP.Skeletons and ESP.Enabled then
-            local connections = {
-                {"Head", "UpperTorso"},
-                {"UpperTorso", "LowerTorso"},
-                {"UpperTorso", "LeftUpperArm"},
-                {"LeftUpperArm", "LeftLowerArm"},
-                {"LeftLowerArm", "LeftHand"},
-                {"UpperTorso", "RightUpperArm"},
-                {"RightUpperArm", "RightLowerArm"},
-                {"RightLowerArm", "RightHand"},
-                {"LowerTorso", "LeftUpperLeg"},
-                {"LeftUpperLeg", "LeftLowerLeg"},
-                {"LeftLowerLeg", "LeftFoot"},
-                {"LowerTorso", "RightUpperLeg"},
-                {"RightUpperLeg", "RightLowerLeg"},
-                {"RightLowerLeg", "RightFoot"}
-            }
-            
-            for i, conn in ipairs(connections) do
-                local part1 = player.Character:FindFirstChild(conn[1])
-                local part2 = player.Character:FindFirstChild(conn[2])
-                
-                if part1 and part2 then
-                    local pos1, vis1 = Camera:WorldToViewportPoint(part1.Position)
-                    local pos2, vis2 = Camera:WorldToViewportPoint(part2.Position)
-                    
-                    if vis1 and vis2 and espObj.SkeletonLines[i] then
-                        espObj.SkeletonLines[i].Visible = true
-                        espObj.SkeletonLines[i].From = Vector2.new(pos1.X, pos1.Y)
-                        espObj.SkeletonLines[i].To = Vector2.new(pos2.X, pos2.Y)
-                        espObj.SkeletonLines[i].Color = ESP.SkeletonColor
-                    elseif espObj.SkeletonLines[i] then
-                        espObj.SkeletonLines[i].Visible = false
-                    end
-                elseif espObj.SkeletonLines[i] then
-                    espObj.SkeletonLines[i].Visible = false
-                end
-            end
-        else
-            for _, line in ipairs(espObj.SkeletonLines) do
-                if line then line.Visible = false end
-            end
-        end
+        esp.DistanceText.Text = distText
+        esp.DistanceText.Position = Vector2.new(centerX, boxMaxY + 28)
+        esp.DistanceText.Size = 10
+    else
+        esp.DistanceText.Visible = false
     end
 end
 
--- Создание ESP при появлении игрока
-Players.PlayerAdded:Connect(function(player)
-    CreateESP(player)
-end)
-
-Players.PlayerRemoving:Connect(function(player)
+-- ОЧИСТКА ESP
+local function ClearESP(player)
     if ESPObjects[player] then
+        for _, obj in pairs(ESPObjects[player]) do
+            if obj and obj.Remove then
+                pcall(function() obj:Remove() end)
+            end
+        end
         ESPObjects[player] = nil
     end
-end)
+end
 
-for _, player in ipairs(Players:GetPlayers()) do
-    if player ~= LocalPlayer then
-        CreateESP(player)
+-- ОЧИСТКА ВСЕГО ESP
+local function ClearAllESP()
+    for player, _ in pairs(ESPObjects) do
+        ClearESP(player)
     end
 end
 
-RunService.RenderStepped:Connect(UpdateESP)
-
--- =============================================
--- ESP Вкладка
--- =============================================
-VisualsTab:CreateToggle("ESP Master Switch", false, function(state)
-    ESP.Enabled = state
-end)
-
-VisualsTab:CreateSeparator("Box ESP")
-
-VisualsTab:CreateToggle("Enable Boxes", false, function(state)
-    ESP.Boxes = state
-end)
-
-VisualsTab:CreateColorpicker("Box Color", Color3.fromRGB(255, 0, 0), function(color)
-    ESP.BoxColor = color
-end)
-
-VisualsTab:CreateSlider("Box Thickness", 1, 5, 2, 1, function(value)
-    ESP.BoxThickness = value
-end)
-
-VisualsTab:CreateSeparator("Tracers")
-
-VisualsTab:CreateToggle("Enable Tracers", false, function(state)
-    ESP.Tracers = state
-end)
-
-VisualsTab:CreateColorpicker("Tracer Color", Color3.fromRGB(255, 255, 255), function(color)
-    ESP.TracerColor = color
-end)
-
-VisualsTab:CreateDropdown("Tracer Origin", {"Bottom", "Middle", "Top", "Mouse"}, "Bottom", function(option)
-    ESP.TracerOrigin = option
-end)
-
-VisualsTab:CreateSeparator("Player Info")
-
-VisualsTab:CreateToggle("Show Names", false, function(state)
-    ESP.Names = state
-end)
-
-VisualsTab:CreateToggle("Show Distance", false, function(state)
-    ESP.Distance = state
-end)
-
-VisualsTab:CreateToggle("Show Health Bar", false, function(state)
-    ESP.HealthBar = state
-end)
-
-VisualsTab:CreateSeparator("Skeleton ESP")
-
-VisualsTab:CreateToggle("Show Skeletons", false, function(state)
-    ESP.Skeletons = state
-end)
-
-VisualsTab:CreateColorpicker("Skeleton Color", Color3.fromRGB(0, 255, 0), function(color)
-    ESP.SkeletonColor = color
-end)
-
-VisualsTab:CreateSeparator("Filters")
-
-VisualsTab:CreateToggle("Team Check", false, function(state)
-    ESP.TeamCheck = state
-end)
-
-VisualsTab:CreateToggle("Visible Only", false, function(state)
-    ESP.VisibleCheck = state
-end)
-
-VisualsTab:CreateSlider("Max Distance", 100, 5000, 2000, 100, function(value)
-    ESP.MaxDistance = value
-end)
-
--- =============================================
--- AIMBOT
--- =============================================
-local Aimbot = {
-    Enabled = false,
-    Silent = false,
-    FOV = 150,
-    FOVCircle = false,
-    Smoothness = 5,
-    AimPart = "Head",
-    TeamCheck = false,
-    VisibleCheck = false,
-    TriggerBot = false,
-    TriggerKey = "MouseButton2"
-}
-
--- FOV Circle
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Visible = false
-FOVCircle.Thickness = 2
-FOVCircle.Color = Color3.fromRGB(255, 255, 255)
-FOVCircle.NumSides = 60
-FOVCircle.Radius = Aimbot.FOV
-FOVCircle.Filled = false
-FOVCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-
-AimbotTab:CreateToggle("Enable Aimbot", false, function(state)
-    Aimbot.Enabled = state
-end)
-
-AimbotTab:CreateToggle("Silent Aim", false, function(state)
-    Aimbot.Silent = state
-end)
-
-AimbotTab:CreateSlider("FOV Size", 50, 500, 150, 5, function(value)
-    Aimbot.FOV = value
-    FOVCircle.Radius = value
-end)
-
-AimbotTab:CreateToggle("Draw FOV Circle", false, function(state)
-    Aimbot.FOVCircle = state
-    FOVCircle.Visible = state
-end)
-
-AimbotTab:CreateSlider("Smoothness", 1, 20, 5, 1, function(value)
-    Aimbot.Smoothness = value
-end)
-
-AimbotTab:CreateDropdown("Aim Part", {"Head", "HumanoidRootPart", "Torso"}, "Head", function(option)
-    Aimbot.AimPart = option
-end)
-
-AimbotTab:CreateToggle("Team Check", false, function(state)
-    Aimbot.TeamCheck = state
-end)
-
--- =============================================
--- PLAYER
--- =============================================
-PlayerTab:CreateSlider("WalkSpeed", 16, 500, 16, 1, function(value)
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        LocalPlayer.Character.Humanoid.WalkSpeed = value
+-- ОСНОВНОЙ ЦИКЛ ОТРИСОВКИ
+RunService.RenderStepped:Connect(function()
+    if not ESPConfig.Enabled then 
+        ClearAllESP()
+        return 
     end
-end)
-
-PlayerTab:CreateSlider("JumpPower", 50, 500, 50, 10, function(value)
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        LocalPlayer.Character.Humanoid.JumpPower = value
-    end
-end)
-
-PlayerTab:CreateToggle("Infinite Jump", false, function(state)
-    _G.InfiniteJump = state
-end)
-
-PlayerTab:CreateToggle("Fly", false, function(state)
-    _G.Fly = state
-    if state then
-        local player = LocalPlayer
-        local character = player.Character or player.CharacterAdded:Wait()
-        local humanoid = character:WaitForChild("Humanoid")
-        local rootPart = character:WaitForChild("HumanoidRootPart")
-        
-        local bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.P = 9e4
-        bodyGyro.maxTorque = Vector3.new(9e9, 9e9, 9e9)
-        bodyGyro.CFrame = rootPart.CFrame
-        bodyGyro.Parent = rootPart
-        
-        local bodyVelocity = Instance.new("BodyVelocity")
-        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-        bodyVelocity.Parent = rootPart
-        
-        _G.FlyConnection = RunService.RenderStepped:Connect(function()
-            if not _G.Fly then
-                bodyGyro:Destroy()
-                bodyVelocity:Destroy()
-                _G.FlyConnection:Disconnect()
-                return
-            end
-            bodyGyro.CFrame = Camera.CFrame
-            
-            local direction = Vector3.new()
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                direction = direction + Camera.CFrame.LookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                direction = direction - Camera.CFrame.LookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                direction = direction - Camera.CFrame.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                direction = direction + Camera.CFrame.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                direction = direction + Vector3.new(0, 1, 0)
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-                direction = direction - Vector3.new(0, 1, 0)
-            end
-            
-            bodyVelocity.Velocity = direction * 50
-        end)
-    end
-end)
-
-PlayerTab:CreateToggle("NoClip", false, function(state)
-    _G.NoClip = state
-    if state then
-        _G.NoClipConnection = RunService.Stepped:Connect(function()
-            if _G.NoClip and LocalPlayer.Character then
-                for _, v in ipairs(LocalPlayer.Character:GetDescendants()) do
-                    if v:IsA("BasePart") and v.CanCollide then
-                        v.CanCollide = false
-                    end
-                end
-            end
-        end)
-    else
-        if _G.NoClipConnection then
-            _G.NoClipConnection:Disconnect()
-        end
-    end
-end)
-
--- =============================================
--- TELEPORTS
--- =============================================
-TeleportTab:CreateButton("Teleport to Mouse Position", function()
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        local mouse = LocalPlayer:GetMouse()
-        local target = mouse.Hit.p
-        LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(target)
-    end
-end)
-
-TeleportTab:CreateTextBox("Teleport to Player", "PlayerName", function(text)
-    local target = Players:FindFirstChild(text)
-    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-        LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3)
-    end
-end)
-
-TeleportTab:CreateButton("Teleport to CFrame (Clipboard)", function()
-    local clipboard = getclipboard()
-    local success, result = pcall(function()
-        local cframe = loadstring("return " .. clipboard)()
-        if typeof(cframe) == "CFrame" and LocalPlayer.Character then
-            LocalPlayer.Character.HumanoidRootPart.CFrame = cframe
-        end
-    end)
-end)
-
--- =============================================
--- MISC
--- =============================================
-MiscTab:CreateButton("Save Position", function()
-    if LocalPlayer.Character then
-        _G.SavedPosition = LocalPlayer.Character.HumanoidRootPart.CFrame
-        setclipboard(tostring(_G.SavedPosition))
-    end
-end)
-
-MiscTab:CreateButton("Load Position", function()
-    if _G.SavedPosition and LocalPlayer.Character then
-        LocalPlayer.Character.HumanoidRootPart.CFrame = _G.SavedPosition
-    end
-end)
-
-MiscTab:CreateButton("Server Hop", function()
-    local Http = game:GetService("HttpService")
-    local TPS = game:GetService("TeleportService")
-    local Api = "https://games.roblox.com/v1/games/"
     
-    local request = http_request or request or HttpPost or syn.request
-    local url = Api .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-    
-    local success, result = pcall(function()
-        if syn then
-            return request({Url = url, Method = "GET"})
-        else
-            return game:HttpGet(url)
-        end
-    end)
-    
-    if success then
-        local body = type(result) == "table" and result.Body or result
-        local data = HttpService:JSONDecode(body)
-        if data and data.data and #data.data > 0 then
-            local server = data.data[math.random(1, #data.data)]
-            TPS:TeleportToPlaceInstance(game.PlaceId, server.id, LocalPlayer)
-        end
+    for _, player in pairs(Players:GetPlayers()) do
+        pcall(function() DrawESP(player) end)
     end
 end)
 
-MiscTab:CreateButton("Rejoin Server", function()
-    local TPS = game:GetService("TeleportService")
-    TPS:Teleport(game.PlaceId, LocalPlayer)
+-- ОБРАБОТКА ВЫХОДА ИГРОКОВ
+Players.PlayerRemoving:Connect(function(player)
+    ClearESP(player)
 end)
 
--- =============================================
--- CREDITS
--- =============================================
-CredTab:CreateLabel("SWILL Universal Executor")
-CredTab:CreateLabel("Version: 1.0.0")
-CredTab:CreateLabel("Created by: Swill Way Team")
-CredTab:CreateLabel("Date: 26.09.2025")
-CredTab:CreateLabel("")
-CredTab:CreateLabel("Features:")
-CredTab:CreateLabel("• ESP (Box, Tracers, Names, Health, Skeleton)")
-CredTab:CreateLabel("• Aimbot (Silent, FOV, Smooth)")
-CredTab:CreateLabel("• Player Mods (Speed, Jump, Fly, NoClip)")
-CredTab:CreateLabel("• Teleports (Mouse, Player, CFrame)")
-CredTab:CreateLabel("• Server Hopper & Rejoin")
-CredTab:CreateLabel("")
-CredTab:CreateLabel("Supported Executors:")
-CredTab:CreateLabel("Synapse X | Krnl | ScriptWare")
-CredTab:CreateLabel("Fluxus | Delta | CodeX | Vega X")
+-- ОБРАБОТКА ПЕРЕРОЖДЕНИЯ
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    ClearAllESP()
+end)
 
--- =============================================
--- INFINITE JUMP
--- =============================================
-UserInputService.JumpRequest:Connect(function()
-    if _G.InfiniteJump and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+-- ГЛОБАЛЬНЫЕ ФУНКЦИИ УПРАВЛЕНИЯ
+_G.SetESPEnabled = function(enabled)
+    ESPConfig.Enabled = enabled
+    if not enabled then ClearAllESP() end
+end
+
+_G.SetESPConfig = function(config)
+    for k, v in pairs(config) do
+        ESPConfig[k] = v
+    end
+end
+
+_G.GetESPConfig = function()
+    return ESPConfig
+end
+
+-- ============================================
+-- СОЗДАНИЕ GUI ИНТЕРФЕЙСА
+-- ============================================
+
+local Window = Rayfield:CreateWindow({
+    Name = "SWILL ESP SYSTEM",
+    Icon = "rbxassetid://10988733171",
+    LoadingTitle = "Загрузка ESP системы...",
+    LoadingSubtitle = "by Swill Way | Полностью рабочий",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "SwillESP",
+        FileName = "Settings"
+    },
+    KeySystem = false
+})
+
+-- ВКЛАДКА ГЛАВНАЯ
+local MainTab = Window:CreateTab("Главная", nil)
+
+MainTab:CreateSection("Управление ESP")
+
+MainTab:CreateToggle({
+    Name = "Включить ESP",
+    CurrentValue = true,
+    Flag = "ESPEnabled",
+    Callback = function(Value)
+        _G.SetESPEnabled(Value)
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "Максимальная дистанция",
+    Range = {100, 800},
+    Increment = 10,
+    CurrentValue = 500,
+    Flag = "MaxDistance",
+    Callback = function(Value)
+        _G.SetESPConfig({MaxRenderDistance = Value})
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Проверка команд",
+    CurrentValue = false,
+    Flag = "TeamCheck",
+    Callback = function(Value)
+        _G.SetESPConfig({TeamCheck = Value})
+    end
+})
+
+-- ВКЛАДКА ВИЗУАЛЬНЫЕ
+local VisualTab = Window:CreateTab("Визуальные", nil)
+
+VisualTab:CreateSection("Элементы ESP")
+
+VisualTab:CreateToggle({
+    Name = "Показывать Box",
+    CurrentValue = true,
+    Flag = "ShowBox",
+    Callback = function(Value)
+        _G.SetESPConfig({Box = Value})
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Показывать Traceline",
+    CurrentValue = true,
+    Flag = "ShowTraceline",
+    Callback = function(Value)
+        _G.SetESPConfig({Traceline = Value})
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Показывать Health Bar",
+    CurrentValue = true,
+    Flag = "ShowHealthBar",
+    Callback = function(Value)
+        _G.SetESPConfig({HealthBar = Value})
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Показывать здоровье (текст)",
+    CurrentValue = true,
+    Flag = "ShowHealthText",
+    Callback = function(Value)
+        _G.SetESPConfig({HealthText = Value})
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Показывать имя",
+    CurrentValue = true,
+    Flag = "ShowName",
+    Callback = function(Value)
+        _G.SetESPConfig({NameDisplay = Value})
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Показывать дистанцию",
+    CurrentValue = true,
+    Flag = "ShowDistance",
+    Callback = function(Value)
+        _G.SetESPConfig({Distance = Value})
+    end
+})
+
+-- ВКЛАДКА ЦВЕТА
+local ColorsTab = Window:CreateTab("Цвета", nil)
+
+ColorsTab:CreateSection("Настройка цветов")
+
+ColorsTab:CreateColorPicker({
+    Name = "Цвет Box",
+    Color = Color3.fromRGB(0, 255, 255),
+    Flag = "BoxColor",
+    Callback = function(Color)
+        _G.SetESPConfig({BoxColor = Color})
+    end
+})
+
+ColorsTab:CreateColorPicker({
+    Name = "Цвет Traceline",
+    Color = Color3.fromRGB(255, 0, 255),
+    Flag = "TracelineColor",
+    Callback = function(Color)
+        _G.SetESPConfig({TracelineColor = Color})
+    end
+})
+
+ColorsTab:CreateToggle({
+    Name = "Использовать цвета команд",
+    CurrentValue = true,
+    Flag = "UseTeamColors",
+    Callback = function(Value)
+        _G.SetESPConfig({UseTeamColors = Value})
+    end
+})
+
+-- ВКЛАДКА ИНФО
+local InfoTab = Window:CreateTab("Инфо", nil)
+
+InfoTab:CreateSection("О системе")
+
+InfoTab:CreateLabel("SWILL ESP SYSTEM v2.0", nil, true)
+InfoTab:CreateLabel("Разработано командой Swill Way", nil, true)
+InfoTab:CreateLabel("Дата создания: 26.09.2025", nil, true)
+InfoTab:CreateLabel("", nil, true)
+InfoTab:CreateLabel("Функции:", nil, true)
+InfoTab:CreateLabel("• Box ESP", nil, true)
+InfoTab:CreateLabel("• Traceline (линия к цели)", nil, true)
+InfoTab:CreateLabel("• Health Bar (полоска здоровья)", nil, true)
+InfoTab:CreateLabel("• Отображение здоровья текстом", nil, true)
+InfoTab:CreateLabel("• Отображение имени игрока", nil, true)
+InfoTab:CreateLabel("• Отображение дистанции", nil, true)
+InfoTab:CreateLabel("• Проверка команд", nil, true)
+InfoTab:CreateLabel("", nil, true)
+InfoTab:CreateLabel("Управление:", nil, true)
+InfoTab:CreateLabel("• Настройки сохраняются автоматически", nil, true)
+
+-- СООБЩЕНИЕ О ЗАГРУЗКЕ
+print("═══════════════════════════════════════════════════════")
+print("SWILL ESP SYSTEM v2.0 ЗАГРУЖЕНА!")
+print("═══════════════════════════════════════════════════════")
+print("✓ ESP активна и работает")
+print("✓ GUI интерфейс создан")
+print("✓ Все функции доступны")
+print("═══════════════════════════════════════════════════════")
+
+-- ВЫВЕСТИ УВЕДОМЛЕНИЕ В ИГРУ
+pcall(function()
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "SWILL ESP SYSTEM",
+        Text = "ESP загружена! Нажми [Insert] для открытия меню",
+        Duration = 5,
+        Icon = "rbxassetid://10988733171"
+    })
+end)
+
+-- ГОРЯЧАЯ КЛАВИША ДЛЯ ОТКРЫТИЯ МЕНЮ (Insert)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Insert then
+        Rayfield:Toggle()
     end
 end)
-
--- =============================================
--- NOTIFICATION
--- =============================================
-Library:Notification("SWILL Loaded Successfully!", "Welcome to the best Universal Executor!", 5)
-
--- // END OF SCRIPT
-print("SWILL Executor v1.0 - Loaded | Swill Way Team | 26.09.2025")
