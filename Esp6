@@ -1,11 +1,3 @@
---[[
-    SWILL ESP SYSTEM v2.0 - ПОЛНОСТЬЮ ФУНКЦИОНАЛЬНЫЙ
-    Включает: ESP (Box, Traceline, Health Bar, Name, Distance)
-    + Красивый GUI интерфейс с управлением
-    РАБОТАЕТ НА ВСЕХ РЕЖИМАХ И ВСЕХ ИГРАХ
---]]
-
--- ЗАГРУЗКА БИБЛИОТЕКИ ДЛЯ GUI
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
 
 local Players = game:GetService("Players")
